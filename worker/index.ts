@@ -108,7 +108,10 @@ async function dispatchBuild(
     }),
   });
   if (!githubResponse.ok) {
-    throw new Error(`GitHub dispatch failed with ${githubResponse.status}`);
+    const detail = (await githubResponse.text()).replaceAll(/\s+/g, " ").slice(0, 300);
+    throw new Error(
+      `GitHub dispatch failed with ${githubResponse.status}: ${detail || "no details"}`,
+    );
   }
 }
 
