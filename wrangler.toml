@@ -1,0 +1,18 @@
+name = "yumebox-icon-bridge"
+main = "worker/index.ts"
+compatibility_date = "2026-08-17"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+
+[[r2_buckets]]
+binding = "ICON_BUNDLES"
+bucket_name = "yumebox-icon-bundles"
+
+[vars]
+GITHUB_OWNER = "YumeYucca"
+GITHUB_REPO = "DIY-Icon"
+GITHUB_WORKFLOW = "build-icon.yml"
+GITHUB_REF = "main"
+# Optional additional origins separated by commas. The Worker's own origin is allowed automatically.

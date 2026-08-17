@@ -1,0 +1,172 @@
+name: Build Custom YumeBox Icon APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Cloudflare Worker icon job ID
+        required: true
+        type: string
+      download_token:
+        description: One-time icon bundle token
+        required: true
+        type: string
+      callback_token:
+        description: One-time build status callback token
+        required: true
+        type: string
+
+concurrency:
+  group: custom-icon-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build two custom APKs
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      YUMEBOX_REPOSITORY: YumeYucca/YumeBox
+      YUMEBOX_REF: Yume
+      ICON_WORKER_URL: ${{ vars.ICON_WORKER_URL }}
+      ICON_JOB_ID: ${{ inputs.job_id }}
+      ICON_DOWNLOAD_TOKEN: ${{ inputs.download_token }}
+      ICON_CALLBACK_TOKEN: ${{ inputs.callback_token }}
+      ACTIONS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      ARTIFACT_NAME: YumeBox-custom-icon-${{ inputs.job_id }}
+
+    steps:
+      - name: Checkout workflow tools
+        uses: actions/checkout@v6
+        with:
+          path: bridge
+          fetch-depth: 1
+
+      - name: Validate request
+        run: python3 bridge/scripts/validate_dispatch.py
+
+      - name: Report started build
+        run: >-
+          python3 bridge/scripts/report_job.py
+          --worker-url "$ICON_WORKER_URL"
+          --job-id "$ICON_JOB_ID"
+          --callback-token "$ICON_CALLBACK_TOKEN"
+          --status running
+          --actions-url "$ACTIONS_RUN_URL"
+
+      - name: Checkout YumeBox source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.YUMEBOX_REPOSITORY }}
+          ref: ${{ env.YUMEBOX_REF }}
+          path: yumebox
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "24"
+
+      - name: Setup Kotlin
+        uses: fwilhe2/setup-kotlin@88d53291848568823e529973af5d0cdb8ddf8d87
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: "1.26"
+          cache: false
+
+      - name: Apply Go patches
+        run: python3 bridge/scripts/apply_go_patches.py --patch-directory yumebox/.github/patch
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae
+        with:
+          toolchain: nightly
+          targets: aarch64-linux-android
+          components: rust-src
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          packages: ""
+
+      - name: Install NDK
+        run: sdkmanager "ndk;30.0.14904198"
+
+      - name: Configure Android paths
+        run: >-
+          python3 bridge/scripts/configure_android_paths.py
+          --target yumebox
+          --ndk-version 30.0.14904198
+
+      - name: Build Geo and native inputs
+        env:
+          ABI_APP_LIST: arm64-v8a
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/30.0.14904198
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ca-certificates
+          sudo update-ca-certificates
+          python3 bridge/scripts/build_native.py --target yumebox
+
+      - name: Apply uploaded icon bundle
+        run: >-
+          python3 bridge/scripts/apply_icon_bundle.py
+          --worker-url "$ICON_WORKER_URL"
+          --job-id "$ICON_JOB_ID"
+          --download-token "$ICON_DOWNLOAD_TOKEN"
+          --target yumebox
+
+      - name: Restore signing configuration
+        env:
+          YUMEBOX_DIR: ${{ github.workspace }}/yumebox
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: python3 bridge/scripts/restore_signing.py
+
+      - name: Build builtin and external APKs
+        run: >-
+          python3 bridge/scripts/build_apks.py
+          --target yumebox
+          --build-number "${{ github.run_number }}"
+          --build-hash "${GITHUB_SHA:0:8}"
+
+      - name: Upload two APK files
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            yumebox/apk-stage/YumeBox-custom-icon-builtin.apk
+            yumebox/apk-stage/YumeBox-custom-icon-external.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Report build result
+        if: always()
+        env:
+          CALLBACK_STATUS: ${{ job.status == 'success' && 'succeeded' || 'failed' }}
+        run: >-
+          python3 bridge/scripts/report_job.py
+          --worker-url "$ICON_WORKER_URL"
+          --job-id "$ICON_JOB_ID"
+          --callback-token "$ICON_CALLBACK_TOKEN"
+          --status "$CALLBACK_STATUS"
+          --actions-url "$ACTIONS_RUN_URL"
+          --artifact-name "$ARTIFACT_NAME"
