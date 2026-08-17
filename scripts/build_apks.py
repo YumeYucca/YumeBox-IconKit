@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and stage exactly the builtin and external custom-icon APKs."""
+"""Build and stage exactly the builtin and external IconKit APKs."""
 
 from __future__ import annotations
 
@@ -46,15 +46,15 @@ def main() -> int:
     clean_apks(stage)
     common = [
         "-Pupdate.channel=pre",
-        "-Pupdate.tag=Custom-icon",
-        "-Pupdate.metaAssetName=YumeBox-custom-icon-meta.json",
+        "-Pupdate.tag=IconKit",
+        "-Pupdate.metaAssetName=YumeBox-IconKit-meta.json",
         f"-Pbuild.number={args.build_number}",
         f"-Pbuild.hash={args.build_hash}",
         "-Pbuild.branch=icon",
-        "-Papk.output.tail=custom",
+        "-Papk.output.tail=iconkit",
     ]
-    shutil.copyfile(build(target, True, common), stage / "YumeBox-custom-icon-builtin.apk")
-    shutil.copyfile(build(target, False, common), stage / "YumeBox-custom-icon-external.apk")
+    shutil.copyfile(build(target, True, common), stage / "YumeBox-IconKit-builtin.apk")
+    shutil.copyfile(build(target, False, common), stage / "YumeBox-IconKit-external.apk")
     return 0
 
 

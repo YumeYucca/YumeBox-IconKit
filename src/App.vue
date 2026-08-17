@@ -197,7 +197,7 @@ async function submit() {
     window.clearInterval(statusPoll);
     statusPoll = undefined;
     const form = new FormData();
-    form.append("bundle", await createBundle(), "yumebox-icons.zip");
+    form.append("bundle", await createBundle(), "YumeBox-IconKit-icons.zip");
     const response = await fetch("/v1/jobs", { method: "POST", body: form });
     if (!response.ok) throw new Error(await response.text());
     const job = (await response.json()) as { actionsUrl: string; statusUrl: string };
@@ -237,7 +237,7 @@ async function downloadBundle() {
     const url = URL.createObjectURL(bundle);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "yumebox-android-icon.zip";
+    link.download = "YumeBox-IconKit.zip";
     link.click();
     URL.revokeObjectURL(url);
   } catch (reason) {
@@ -255,7 +255,7 @@ async function downloadBundle() {
       </div>
     </header>
     <section class="hero">
-      <h1>YumeBox 图标生成器</h1>
+      <h1>YumeBox-IconKit</h1>
       <p>为您的设备生成专属 YumeBox 图标</p>
     </section>
     <section class="workspace">

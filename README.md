@@ -1,4 +1,4 @@
-# YumeBox Icon Studio
+# YumeBox-IconKit
 
 一个单体 Cloudflare Worker：Vue 前端由 Worker Assets 提供；浏览器裁剪图片并生成 Android mipmap ZIP，Worker 把 ZIP 临时存入 R2 后触发本仓库的 GitHub Actions。Action 只读检出 YumeBox，构建并上传两个 APK 工件，不会向 YumeBox 推送任何内容。
 
@@ -8,13 +8,13 @@
 2. 登录 Cloudflare：`npx wrangler login`，然后创建 R2 Bucket：
 
    ```bash
-   npx wrangler r2 bucket create yumebox-icon-bundles
+   npx wrangler r2 bucket create yumebox-iconkit-jobs
    ```
 
    R2 bucket 名称需要与 `wrangler.toml` 保持一致。Job 状态与 ZIP 都存放在此 Bucket，不需要 KV Namespace、账户 ID 或额外的部署环境变量。
 
 3. 设置 Worker secret：`npx wrangler secret put GITHUB_TOKEN`。PAT 需要此仓库的 Actions workflow 写入权限；它只保存在 Cloudflare，不会下发到浏览器或 Actions。
-4. 执行 `npm run build && npm run worker:deploy`。`dist` 会作为 Worker Assets 一并部署，不需要 Cloudflare Pages。部署后记录 Worker 的 HTTPS 域名，例如 `https://yumebox-icon-bridge.<account>.workers.dev`。
+4. 执行 `npm run build && npm run worker:deploy`。`dist` 会作为 Worker Assets 一并部署，不需要 Cloudflare Pages。部署后记录 Worker 的 HTTPS 域名，例如 `https://yumebox-iconkit.<account>.workers.dev`。
 5. 在本仓库的 GitHub Actions Variables 设置 `ICON_WORKER_URL` 为该 Worker 域名（不带结尾 `/`）；在 Actions Secrets 设置签名变量：`SIGNING_KEYSTORE_BASE64`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`。
 
 > 该 API 会触发付费的 GitHub Actions，不能把 Worker 当作匿名公共接口。部署到公开域名前，请在 Cloudflare 为该域名启用 Access，或在 Worker 前接入 Turnstile 与速率限制；`ALLOWED_ORIGINS` 只限制浏览器 CORS，不能阻止 `curl` 直接调用。

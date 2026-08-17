@@ -29,7 +29,7 @@ def main() -> int:
         headers={
             "Authorization": f"Bearer {args.callback_token}",
             "Content-Type": "application/json",
-            "User-Agent": "yumebox-icon-builder",
+            "User-Agent": "yumebox-iconkit",
         },
     )
     with urllib.request.urlopen(request, timeout=30):

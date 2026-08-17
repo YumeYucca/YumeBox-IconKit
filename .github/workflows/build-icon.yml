@@ -1,4 +1,4 @@
-name: Build Custom YumeBox Icon APK
+name: Build YumeBox IconKit APK
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ on:
         type: string
 
 concurrency:
-  group: custom-icon-${{ inputs.job_id }}
+  group: yumebox-iconkit-${{ inputs.job_id }}
   cancel-in-progress: false
 
 permissions:
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   build:
-    name: Build two custom APKs
+    name: Build two IconKit APKs
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -36,7 +36,7 @@ jobs:
       ICON_DOWNLOAD_TOKEN: ${{ inputs.download_token }}
       ICON_CALLBACK_TOKEN: ${{ inputs.callback_token }}
       ACTIONS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      ARTIFACT_NAME: YumeBox-custom-icon-${{ inputs.job_id }}
+      ARTIFACT_NAME: YumeBox-IconKit-${{ inputs.job_id }}
 
     steps:
       - name: Checkout workflow tools
@@ -152,8 +152,8 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: |
-            yumebox/apk-stage/YumeBox-custom-icon-builtin.apk
-            yumebox/apk-stage/YumeBox-custom-icon-external.apk
+            yumebox/apk-stage/YumeBox-IconKit-builtin.apk
+            yumebox/apk-stage/YumeBox-IconKit-external.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

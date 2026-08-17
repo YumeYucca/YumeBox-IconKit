@@ -43,7 +43,7 @@ def required_members() -> dict[str, int]:
 
 
 def download(url: str) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "yumebox-icon-builder"})
+    request = urllib.request.Request(url, headers={"User-Agent": "yumebox-iconkit"})
     with urllib.request.urlopen(request, timeout=60) as response:
         payload = response.read(MAX_ARCHIVE_BYTES + 1)
     if len(payload) > MAX_ARCHIVE_BYTES:

@@ -98,7 +98,7 @@ async function dispatchBuild(
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      "User-Agent": "yumebox-icon-bridge",
+      "User-Agent": "yumebox-iconkit",
       "X-GitHub-Api-Version": "2022-11-28",
       "Content-Type": "application/json",
     },
