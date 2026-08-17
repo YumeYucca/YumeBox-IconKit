@@ -1,17 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { onBeforeUnmount, ref } from "vue";
 import JSZip from "jszip";
-import {
-  Circle,
-  Download,
-  ExternalLink,
-  Globe2,
-  LoaderCircle,
-  Moon,
-  Send,
-  Square,
-  Upload,
-} from "lucide-vue-next";
+import { Globe2, Moon } from "lucide-vue-next";
+import IconControls from "./components/IconControls.vue";
+import IconPreview, { type IconShape } from "./components/IconPreview.vue";
 
 const densities = [
   { name: "mdpi", size: 48, foreground: 108 },
@@ -20,40 +12,28 @@ const densities = [
   { name: "xxhdpi", size: 144, foreground: 324 },
   { name: "xxxhdpi", size: 192, foreground: 432 },
 ];
-type Shape = "square" | "rounded" | "circle";
 
 const sourceUrl = ref<string>();
 const sourceImage = ref<HTMLImageElement>();
 const color = ref("#ffffff");
-const shape = ref<Shape>("rounded");
+const shape = ref<IconShape>("rounded");
 const zoom = ref(1);
 const padding = ref(0);
 const crop = ref(false);
 const x = ref(0);
 const y = ref(0);
-const dragging = ref(false);
 const submitting = ref(false);
 const actionsUrl = ref<string>();
 const jobStatus = ref<"queued" | "running" | "succeeded" | "failed">();
 const error = ref<string>();
-const previewRef = ref<HTMLCanvasElement>();
-let dragStart: { x: number; y: number; offsetX: number; offsetY: number } | undefined;
 let statusPoll: number | undefined;
-const canvasStyle = computed(() => ({ background: color.value }));
-const shapeName = computed(() =>
-  shape.value === "circle" ? "圆形" : shape.value === "rounded" ? "圆角" : "方形",
-);
 
-function clipShape(context: CanvasRenderingContext2D, size: number, iconShape: Shape) {
+function clipShape(context: CanvasRenderingContext2D, size: number) {
   context.beginPath();
-  if (iconShape === "circle") context.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-  else if (iconShape === "rounded") context.roundRect(0, 0, size, size, size * 0.22);
+  if (shape.value === "circle") context.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  else if (shape.value === "rounded") context.roundRect(0, 0, size, size, size * 0.22);
   else context.rect(0, 0, size, size);
   context.clip();
-}
-function fillBackground(context: CanvasRenderingContext2D, size: number) {
-  context.fillStyle = color.value;
-  context.fillRect(0, 0, size, size);
 }
 function drawIcon(
   source: HTMLImageElement,
@@ -66,15 +46,17 @@ function drawIcon(
   canvas.height = size;
   const context = canvas.getContext("2d")!;
   context.save();
-  clipShape(context, size, shape.value);
-  if (includeBackground) fillBackground(context, size);
+  clipShape(context, size);
+  if (includeBackground) {
+    context.fillStyle = color.value;
+    context.fillRect(0, 0, size, size);
+  }
   const available = size * (1 - (padding.value + extraPadding) * 2);
   const baseScale = crop.value
     ? Math.max(available / source.naturalWidth, available / source.naturalHeight)
     : Math.min(available / source.naturalWidth, available / source.naturalHeight);
-  const scale = baseScale * zoom.value;
-  const width = source.naturalWidth * scale;
-  const height = source.naturalHeight * scale;
+  const width = source.naturalWidth * baseScale * zoom.value;
+  const height = source.naturalHeight * baseScale * zoom.value;
   context.drawImage(
     source,
     (size - width) / 2 + x.value * size,
@@ -89,7 +71,9 @@ function drawBackground(size: number) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  fillBackground(canvas.getContext("2d")!, size);
+  const context = canvas.getContext("2d")!;
+  context.fillStyle = color.value;
+  context.fillRect(0, 0, size, size);
   return canvas;
 }
 function canvasBlob(canvas: HTMLCanvasElement) {
@@ -100,14 +84,6 @@ function canvasBlob(canvas: HTMLCanvasElement) {
     ),
   );
 }
-function renderPreview() {
-  if (!sourceImage.value || !previewRef.value) return;
-  const preview = drawIcon(sourceImage.value, 512);
-  const context = previewRef.value.getContext("2d")!;
-  context.clearRect(0, 0, 512, 512);
-  context.drawImage(preview, 0, 0);
-}
-watch([sourceImage, zoom, padding, crop, x, y, shape, color], () => nextTick(renderPreview));
 function loadFile(file?: File) {
   if (!file?.type.startsWith("image/")) {
     error.value = "请选择 PNG、JPG 或 WebP 图片。";
@@ -125,20 +101,6 @@ function loadFile(file?: File) {
     error.value = undefined;
   };
   image.src = url;
-}
-function loadInput(event: Event) {
-  loadFile((event.target as HTMLInputElement).files?.[0]);
-}
-function startDrag(event: PointerEvent) {
-  if (!sourceImage.value) return;
-  dragStart = { x: event.clientX, y: event.clientY, offsetX: x.value, offsetY: y.value };
-  dragging.value = true;
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-}
-function drag(event: PointerEvent) {
-  if (!dragging.value || !dragStart) return;
-  x.value = dragStart.offsetX + (event.clientX - dragStart.x) / 480;
-  y.value = dragStart.offsetY + (event.clientY - dragStart.y) / 480;
 }
 async function createBundle() {
   if (!sourceImage.value) throw new Error("请先上传一张图标图片。");
@@ -188,6 +150,24 @@ async function createBundle() {
     compressionOptions: { level: 6 },
   });
 }
+async function refreshJob(statusUrl: string) {
+  try {
+    const response = await fetch(statusUrl, { cache: "no-store" });
+    if (!response.ok) return;
+    const job = (await response.json()) as {
+      status: "queued" | "running" | "succeeded" | "failed";
+      actionsUrl?: string;
+    };
+    jobStatus.value = job.status;
+    if (job.actionsUrl) actionsUrl.value = job.actionsUrl;
+    if (job.status === "succeeded" || job.status === "failed") {
+      window.clearInterval(statusPoll);
+      statusPoll = undefined;
+    }
+  } catch {
+    // Preserve the workflow link and try again after a transient polling failure.
+  }
+}
 async function submit() {
   try {
     submitting.value = true;
@@ -211,25 +191,6 @@ async function submit() {
     submitting.value = false;
   }
 }
-async function refreshJob(statusUrl: string) {
-  try {
-    const response = await fetch(statusUrl, { cache: "no-store" });
-    if (!response.ok) return;
-    const job = (await response.json()) as {
-      status: "queued" | "running" | "succeeded" | "failed";
-      actionsUrl?: string;
-    };
-    jobStatus.value = job.status;
-    if (job.actionsUrl) actionsUrl.value = job.actionsUrl;
-    if (job.status === "succeeded" || job.status === "failed") {
-      window.clearInterval(statusPoll);
-      statusPoll = undefined;
-    }
-  } catch {
-    // A transient poll failure should not hide the workflow link or stop polling.
-  }
-}
-onBeforeUnmount(() => window.clearInterval(statusPoll));
 async function downloadBundle() {
   try {
     error.value = undefined;
@@ -244,14 +205,15 @@ async function downloadBundle() {
     error.value = reason instanceof Error ? reason.message : "生成 ZIP 失败，请重试。";
   }
 }
+onBeforeUnmount(() => window.clearInterval(statusPoll));
 </script>
 
 <template>
   <main>
     <header>
       <div class="utility">
-        <button aria-label="切换深色模式"><Moon :size="21" /></button
-        ><button aria-label="切换语言"><Globe2 :size="21" /></button>
+        <button aria-label="切换深色模式"><Moon :size="21" /></button>
+        <button aria-label="切换语言"><Globe2 :size="21" /></button>
       </div>
     </header>
     <section class="hero">
@@ -259,113 +221,38 @@ async function downloadBundle() {
       <p>为您的设备生成专属 YumeBox 图标</p>
     </section>
     <section class="workspace">
-      <div class="preview-column">
-        <div
-          :class="['icon-stage', { 'has-image': sourceImage }]"
-          @pointerdown="startDrag"
-          @pointermove="drag"
-          @pointerup="dragging = false"
-        >
-          <canvas v-if="sourceImage" ref="previewRef" width="512" height="512" />
-          <label v-else class="empty-preview"
-            ><Upload :size="35" /><span>上传图片</span
-            ><input type="file" accept="image/png,image/jpeg,image/webp" @change="loadInput"
-          /></label>
-        </div>
-        <div class="zoom-row">
-          <span>预览</span
-          ><input
-            v-model.number="zoom"
-            aria-label="预览缩放"
-            type="range"
-            min="0.5"
-            max="3"
-            step="0.01"
-          /><output>{{ Math.round(zoom * 100) }}%</output>
-        </div>
-        <div class="preview-meta">
-          <span class="color-dot" :style="canvasStyle"></span><code>{{ color.toUpperCase() }}</code
-          ><span>{{ shapeName }}</span>
-        </div>
-      </div>
-      <aside class="controls">
-        <section class="background-control">
-          <h2>背景</h2>
-          <div class="color-input">
-            <input v-model="color" aria-label="背景色" type="color" />
-            <input v-model="color" aria-label="背景色 HEX" maxlength="7" />
-          </div>
-        </section>
-        <section>
-          <h2>形状</h2>
-          <div class="shape-tabs">
-            <button :class="{ active: shape === 'square' }" @click="shape = 'square'">
-              <Square :size="17" />方形</button
-            ><button :class="{ active: shape === 'rounded' }" @click="shape = 'rounded'">
-              <Square :size="17" />圆角</button
-            ><button :class="{ active: shape === 'circle' }" @click="shape = 'circle'">
-              <Circle :size="17" />圆形
-            </button>
-          </div>
-        </section>
-        <section>
-          <div class="section-line">
-            <h2>裁剪</h2>
-            <label class="replace"
-              ><Upload :size="15" />更换图片<input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                @change="loadInput"
-            /></label>
-          </div>
-          <div class="scaling-tabs">
-            <button :class="{ active: !crop }" @click="crop = false">居中</button>
-            <button :class="{ active: crop }" @click="crop = true">裁切</button>
-          </div>
-          <label class="range-line"
-            ><span>留白</span><output>{{ Math.round(padding * 100) }}%</output></label
-          ><input
-            v-model.number="padding"
-            aria-label="图标内边距"
-            type="range"
-            min="0"
-            max="0.35"
-            step="0.01"
-          />
-        </section>
-        <p v-if="error" class="message error">{{ error }}</p>
-        <a
-          v-if="actionsUrl"
-          class="message success"
-          :href="actionsUrl"
-          target="_blank"
-          rel="noreferrer"
-          >{{
-            jobStatus === "succeeded"
-              ? "构建完成"
-              : jobStatus === "failed"
-                ? "构建失败"
-                : jobStatus === "running"
-                  ? "构建中"
-                  : "已提交"
-          }}，打开 Actions <ExternalLink :size="15"
-        /></a>
-        <div class="action-row">
-          <button
-            class="download-zip"
-            :disabled="!sourceImage || submitting"
-            @click="downloadBundle"
-          >
-            <Download :size="18" />下载 ZIP
-          </button>
-          <button class="submit" :disabled="!sourceImage || submitting" @click="submit">
-            <LoaderCircle v-if="submitting" class="spin" :size="19" /><Send v-else :size="18" />{{
-              submitting ? "提交中" : "构建 APK"
-            }}
-          </button>
-        </div>
-        <p class="output-note"><Download :size="15" />Asset Studio 图标包</p>
-      </aside>
+      <IconPreview
+        :source-image="sourceImage"
+        :color="color"
+        :shape="shape"
+        :zoom="zoom"
+        :padding="padding"
+        :crop="crop"
+        :x="x"
+        :y="y"
+        @file="loadFile"
+        @update:zoom="zoom = $event"
+        @update:x="x = $event"
+        @update:y="y = $event"
+      />
+      <IconControls
+        :source-image="sourceImage"
+        :color="color"
+        :shape="shape"
+        :crop="crop"
+        :padding="padding"
+        :submitting="submitting"
+        :actions-url="actionsUrl"
+        :job-status="jobStatus"
+        :error="error"
+        @file="loadFile"
+        @update:color="color = $event"
+        @update:shape="shape = $event"
+        @update:crop="crop = $event"
+        @update:padding="padding = $event"
+        @download="downloadBundle"
+        @submit="submit"
+      />
     </section>
   </main>
 </template>
