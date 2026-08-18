@@ -11,6 +11,7 @@ concurrency:
 permissions:
   actions: read
   contents: read
+  deployments: write
   issues: write
 
 jobs:
@@ -129,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      status_comment_id: ${{ steps.build-status.outputs.comment_id }}
+      deployment_id: ${{ steps.build-deployment.outputs.deployment_id }}
     env:
       ICON_WORKER_URL: https://yumebox-iconkit.yumeyuka.moe
       ISSUE_BODY: ${{ github.event.issue.body }}
@@ -137,7 +138,7 @@ jobs:
       YUMEBOX_REF: Moe
     steps:
       - name: Mark build in progress
-        id: build-status
+        id: build-deployment
         uses: actions/github-script@v8
         with:
           github-token: ${{ github.token }}
@@ -156,13 +157,27 @@ jobs:
               issue_number: issue.number,
               labels: [...retained, "iconkit: building"],
             });
-            const { data: statusComment } = await github.rest.issues.createComment({
+            const { data: deployment } = await github.rest.repos.createDeployment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issue.number,
-              body: `[查看构建日志](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
+              ref: context.sha,
+              task: "iconkit-apk-build",
+              auto_merge: false,
+              required_contexts: [],
+              environment: "IconKit APK build",
+              transient_environment: true,
+              production_environment: false,
+              description: "IconKit APK build is running",
             });
-            core.setOutput("comment_id", String(statusComment.id));
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.id,
+              state: "in_progress",
+              description: "IconKit APK build is running",
+              auto_inactive: false,
+            });
+            core.setOutput("deployment_id", String(deployment.id));
 
       - name: Checkout workflow tools
         uses: actions/checkout@v6
@@ -483,7 +498,7 @@ jobs:
           GEO_RESULT: ${{ needs.build-geo.result }}
           NATIVE_RESULT: ${{ needs.build-native.result }}
           APK_RESULT: ${{ needs.build-apk.result }}
-          STATUS_COMMENT_ID: ${{ needs.prepare.outputs.status_comment_id }}
+          DEPLOYMENT_ID: ${{ needs.prepare.outputs.deployment_id }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -527,16 +542,27 @@ jobs:
               issue_number: issue.number,
               labels: [...retained, succeeded ? "iconkit: success" : "iconkit: failed"],
             });
-            const logs = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
-            const body = succeeded
-              ? `## IconKit APK 构建完成\n\n### Choosing an APK variant\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): Includes Geo data; recommended for first-time installation.\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): Smaller APK; recommended for updates.\n- Both variants have the same features.\n\n- [查看构建日志](${logs})`
-              : `## IconKit APK 构建未成功\n\n已标记为失败并关闭此 Issue。\n\n- [查看构建日志](${logs})`;
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: Number(process.env.STATUS_COMMENT_ID),
-              body,
-            });
+            const deploymentId = Number(process.env.DEPLOYMENT_ID);
+            if (Number.isInteger(deploymentId) && deploymentId > 0) {
+              await github.rest.repos.createDeploymentStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                deployment_id: deploymentId,
+                state: succeeded ? "success" : "failure",
+                description: succeeded
+                  ? "IconKit APK build completed"
+                  : "IconKit APK build failed",
+                auto_inactive: false,
+              });
+            }
+            if (succeeded) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `## IconKit APK 构建完成\n\n### Choosing an APK variant\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): Includes Geo data; recommended for first-time installation.\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): Smaller APK; recommended for updates.\n- Both variants have the same features.`,
+              });
+            }
             await github.rest.issues.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
