@@ -529,7 +529,7 @@ jobs:
             });
             const logs = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
             const body = succeeded
-              ? `## IconKit APK 构建完成\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): 内置 GeoIP、GeoSite、ASN 和 BundleMRS 数据，首次安装推荐。\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): 不包含 Geo 数据，体积更小；首次启用时需要联网下载 Geo 数据。\n- [查看构建日志](${logs})`
+              ? `## IconKit APK 构建完成\n\n### Choosing an APK variant\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): Includes Geo data; recommended for first-time installation.\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): Smaller APK; recommended for updates.\n- Both variants have the same features.\n\n- [查看构建日志](${logs})`
               : `## IconKit APK 构建未成功\n\n已标记为失败并关闭此 Issue。\n\n- [查看构建日志](${logs})`;
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
@@ -537,11 +537,9 @@ jobs:
               comment_id: Number(process.env.STATUS_COMMENT_ID),
               body,
             });
-            if (!succeeded) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: "closed",
-              });
-            }
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: "closed",
+            });
