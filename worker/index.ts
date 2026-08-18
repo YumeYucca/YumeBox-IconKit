@@ -1,5 +1,4 @@
 export interface Env {
-  ASSETS: Fetcher;
   ICON_BUNDLES: R2Bucket;
   GITHUB_TOKEN: string;
   GITHUB_OWNER: string;
@@ -59,11 +58,17 @@ function cors(request: Request, env: Env): Headers {
 }
 
 function allowedOrigin(request: Request, env: Env, origin: string): boolean {
-  const configured = env.ALLOWED_ORIGINS?.split(",").map((value) => value.trim()) ?? [];
+  const configured =
+    env.ALLOWED_ORIGINS?.split(",").map((value) => value.trim()) ?? [];
   return origin === new URL(request.url).origin || configured.includes(origin);
 }
 
-function response(request: Request, env: Env, body: BodyInit | null, init: ResponseInit = {}) {
+function response(
+  request: Request,
+  env: Env,
+  body: BodyInit | null,
+  init: ResponseInit = {},
+) {
   const headers = cors(request, env);
   new Headers(init.headers).forEach((value, key) => headers.set(key, value));
   return new Response(body, { ...init, headers });
@@ -71,7 +76,9 @@ function response(request: Request, env: Env, body: BodyInit | null, init: Respo
 
 function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 function safeEqual(left: string, right: string): boolean {
@@ -80,10 +87,6 @@ function safeEqual(left: string, right: string): boolean {
   for (let index = 0; index < left.length; index += 1)
     result |= left.charCodeAt(index) ^ right.charCodeAt(index);
   return result === 0;
-}
-
-function workflowUrl(env: Env) {
-  return `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW}`;
 }
 
 async function dispatchBuild(
@@ -114,7 +117,9 @@ async function dispatchBuild(
     }),
   });
   if (!githubResponse.ok) {
-    const detail = (await githubResponse.text()).replaceAll(/\s+/g, " ").slice(0, 300);
+    const detail = (await githubResponse.text())
+      .replaceAll(/\s+/g, " ")
+      .slice(0, 300);
     throw new Error(
       `GitHub dispatch failed with ${githubResponse.status}: ${detail || "no details"}`,
     );
@@ -124,7 +129,8 @@ async function dispatchBuild(
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "OPTIONS") return response(request, env, null, { status: 204 });
+    if (request.method === "OPTIONS")
+      return response(request, env, null, { status: 204 });
 
     if (request.method === "POST" && url.pathname === "/v1/jobs") {
       const origin = request.headers.get("Origin");
@@ -133,12 +139,23 @@ export default {
 
       const form = await request.formData();
       const bundle = form.get("bundle");
-      if (!(bundle instanceof File) || bundle.size === 0 || bundle.size > MAX_BUNDLE_BYTES) {
-        return response(request, env, "Bundle must be a ZIP smaller than 8 MB", { status: 400 });
+      if (
+        !(bundle instanceof File) ||
+        bundle.size === 0 ||
+        bundle.size > MAX_BUNDLE_BYTES
+      ) {
+        return response(
+          request,
+          env,
+          "Bundle must be a ZIP smaller than 8 MB",
+          { status: 400 },
+        );
       }
       const bytes = await bundle.arrayBuffer();
       if (new Uint8Array(bytes, 0, 4).join(",") !== "80,75,3,4") {
-        return response(request, env, "Bundle is not a ZIP archive", { status: 400 });
+        return response(request, env, "Bundle is not a ZIP archive", {
+          status: 400,
+        });
       }
 
       const jobId = crypto.randomUUID();
@@ -154,13 +171,20 @@ export default {
         callbackToken,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + JOB_TTL_SECONDS * 1000).toISOString(),
-        bundleExpiresAt: new Date(Date.now() + BUNDLE_TTL_SECONDS * 1000).toISOString(),
+        bundleExpiresAt: new Date(
+          Date.now() + BUNDLE_TTL_SECONDS * 1000,
+        ).toISOString(),
         status: "queued",
-        actionsUrl: workflowUrl(env),
       } satisfies Job);
 
       try {
-        await dispatchBuild(env, jobId, downloadToken, callbackToken, url.origin);
+        await dispatchBuild(
+          env,
+          jobId,
+          downloadToken,
+          callbackToken,
+          url.origin,
+        );
       } catch (error) {
         await Promise.all([
           env.ICON_BUNDLES.delete(objectKey),
@@ -179,7 +203,6 @@ export default {
         env,
         JSON.stringify({
           jobId,
-          actionsUrl: workflowUrl(env),
           statusUrl: `/v1/jobs/${jobId}`,
         }),
         { status: 202, headers: { "Content-Type": "application/json" } },
@@ -198,22 +221,34 @@ export default {
           actionsUrl: job.actionsUrl,
           artifactName: job.artifactName,
         }),
-        { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
+        },
       );
     }
 
-    const callbackMatch = url.pathname.match(/^\/v1\/jobs\/([\w-]+)\/callback$/);
+    const callbackMatch = url.pathname.match(
+      /^\/v1\/jobs\/([\w-]+)\/callback$/,
+    );
     if (request.method === "POST" && callbackMatch) {
       const job = await getJob(env, callbackMatch[1]);
       if (!job) return new Response("Not found", { status: 404 });
-      const token = request.headers.get("Authorization")?.replace(/^Bearer\s+/, "") ?? "";
-      if (!safeEqual(token, job.callbackToken)) return new Response("Forbidden", { status: 403 });
+      const token =
+        request.headers.get("Authorization")?.replace(/^Bearer\s+/, "") ?? "";
+      if (!safeEqual(token, job.callbackToken))
+        return new Response("Forbidden", { status: 403 });
       const payload = (await request.json()) as Partial<{
         status: JobStatus;
         actionsUrl: string;
         artifactName: string;
       }>;
-      if (!payload.status || !["running", "succeeded", "failed"].includes(payload.status))
+      if (
+        !payload.status ||
+        !["running", "succeeded", "failed"].includes(payload.status)
+      )
         return new Response("Invalid status", { status: 400 });
       if (
         !payload.actionsUrl?.startsWith(
@@ -236,7 +271,8 @@ export default {
       const token = url.searchParams.get("token") ?? "";
       const job = await getJob(env, jobId);
       if (!job) return new Response("Not found", { status: 404 });
-      if (!safeEqual(token, job.downloadToken)) return new Response("Forbidden", { status: 403 });
+      if (!safeEqual(token, job.downloadToken))
+        return new Response("Forbidden", { status: 403 });
       if (Date.parse(job.bundleExpiresAt) < Date.now()) {
         await env.ICON_BUNDLES.delete(`jobs/${jobId}/icon-bundle.zip`);
         return new Response("Bundle expired", { status: 410 });
@@ -246,9 +282,11 @@ export default {
       const bundle = await env.ICON_BUNDLES.get(objectKey);
       if (!bundle) return new Response("Not found", { status: 404 });
       await env.ICON_BUNDLES.delete(objectKey);
-      return new Response(bundle.body, { headers: { "Content-Type": "application/zip" } });
+      return new Response(bundle.body, {
+        headers: { "Content-Type": "application/zip" },
+      });
     }
 
-    return env.ASSETS.fetch(request);
+    return response(request, env, "Not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

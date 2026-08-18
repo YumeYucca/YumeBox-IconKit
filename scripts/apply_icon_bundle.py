@@ -12,7 +12,7 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 DENSITIES = {
     "mdpi": (48, 108),
@@ -54,7 +54,10 @@ def download(url: str) -> bytes:
 def validate_archive(payload: bytes) -> zipfile.ZipFile:
     archive = zipfile.ZipFile(io.BytesIO(payload))
     infos = archive.infolist()
-    if any(info.is_dir() or Path(info.filename).is_absolute() or ".." in Path(info.filename).parts for info in infos):
+    if any(
+        PurePosixPath(info.filename).is_absolute() or ".." in PurePosixPath(info.filename).parts
+        for info in infos
+    ):
         raise ValueError("Icon bundle has unsafe paths")
     if sum(info.file_size for info in infos) > MAX_UNCOMPRESSED_BYTES:
         raise ValueError("Icon bundle expands beyond 24 MB")

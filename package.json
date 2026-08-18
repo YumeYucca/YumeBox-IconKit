@@ -4,28 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vp dev",
-    "build": "vp build",
-    "check": "vp check",
-    "preview": "vp preview",
-    "worker:dev": "vp exec wrangler dev",
-    "worker:deploy": "vp exec wrangler deploy"
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
-    "jszip": "latest",
-    "lucide-vue-next": "latest",
-    "vite": "npm:@voidzero-dev/vite-plus-core@latest",
-    "vue": "latest",
     "wrangler": "latest"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
-    "@vitejs/plugin-vue": "latest",
-    "typescript": "latest",
-    "vite-plus": "latest"
-  },
-  "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@latest"
+    "typescript": "latest"
   },
   "packageManager": "npm@11.13.0"
 }

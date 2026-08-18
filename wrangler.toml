@@ -4,10 +4,6 @@ compatibility_date = "2026-08-17"
 # Preserve runtime variables and secrets configured in Cloudflare across Git deployments.
 keep_vars = true
 
-[assets]
-directory = "./dist"
-not_found_handling = "single-page-application"
-
 [[r2_buckets]]
 binding = "ICON_BUNDLES"
 bucket_name = "yumebox-iconkit-jobs"
@@ -17,4 +13,5 @@ GITHUB_OWNER = "YumeYucca"
 GITHUB_REPO = "YumeBox-IconKit"
 GITHUB_WORKFLOW = "build-icon.yml"
 GITHUB_REF = "Moe"
-# Optional additional origins separated by commas. The Worker's own origin is allowed automatically.
+# Mintlify documentation origins allowed to submit icon jobs.
+ALLOWED_ORIGINS = "https://yumebox.gal.tf,https://yumebox.mintlify.app"
