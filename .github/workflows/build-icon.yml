@@ -34,7 +34,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       YUMEBOX_REPOSITORY: YumeYucca/YumeBox
-      YUMEBOX_REF: Yume
+      YUMEBOX_REF: Moe
       ICON_WORKER_URL: ${{ inputs.worker_url }}
       ICON_JOB_ID: ${{ inputs.job_id }}
       ICON_DOWNLOAD_TOKEN: ${{ inputs.download_token }}
