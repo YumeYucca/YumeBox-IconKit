@@ -90,7 +90,7 @@ function issueUrl(env: Env, workerUrl: string, jobId: string, token: string): st
     body: [
       "## IconKit APK 构建请求",
       "此 Issue 由 IconKit 自动创建。请勿修改下方图标包链接，构建将自动开始。",
-      bundleUrl,
+      `\`\`\`text\n${bundleUrl}\n\`\`\``,
     ].join("\n\n"),
   });
   return `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/issues/new?${search}`;

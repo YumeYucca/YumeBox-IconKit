@@ -2,7 +2,7 @@ name: Build YumeBox IconKit APK
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened]
 
 concurrency:
   group: yumebox-iconkit-issue-${{ github.event.issue.number }}
@@ -18,8 +18,11 @@ jobs:
     name: "00 · Rate limit"
     if: github.event.action == 'opened' && startsWith(github.event.issue.title, '[IconKit]')
     runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.gate.outputs.allowed }}
     steps:
       - name: Apply issue labels and enforce the rate limit
+        id: gate
         uses: actions/github-script@v8
         with:
           github-token: ${{ github.token }}
@@ -106,6 +109,7 @@ jobs:
                 issue_number: issue.number,
                 state: "closed",
               });
+              core.setOutput("allowed", "false");
               return;
             }
 
@@ -117,17 +121,12 @@ jobs:
               labels: [labels.approved.name],
             });
             await comment(`## IconKit 构建已通过检查\n\n已自动添加 \`approved\` 标签，正在启动构建。\n\n- [查看 Actions 进度](${context.payload.repository.html_url}/actions/runs/${context.runId})`);
+            core.setOutput("allowed", "true");
 
   prepare:
     name: "01 · Prepare icon"
-    if: >-
-      github.event.action == 'labeled' &&
-      github.event.label.name == 'approved' &&
-      github.event.issue.state == 'open' &&
-      startsWith(github.event.issue.title, '[IconKit]') &&
-      !contains(github.event.issue.labels.*.name, 'iconkit: building') &&
-      !contains(github.event.issue.labels.*.name, 'iconkit: success') &&
-      !contains(github.event.issue.labels.*.name, 'iconkit: rate-limited')
+    needs: triage
+    if: needs.triage.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -470,8 +469,8 @@ jobs:
 
   finalize:
     name: "04 · Report result"
-    needs: [prepare, build-geo, build-native, build-apk]
-    if: always()
+    needs: [triage, prepare, build-geo, build-native, build-apk]
+    if: always() && needs.triage.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Update issue status and comment the result
