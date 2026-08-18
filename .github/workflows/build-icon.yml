@@ -132,11 +132,7 @@ jobs:
           ABI_APP_LIST: arm64-v8a
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/30.0.14904198
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes ca-certificates
-          sudo update-ca-certificates
-          python3 bridge/scripts/build_native.py --target yumebox
+        run: python3 bridge/scripts/build_native.py --target yumebox
 
       - name: Apply uploaded icon bundle
         run: >-
