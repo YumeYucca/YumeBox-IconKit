@@ -562,6 +562,13 @@ jobs:
                 issue_number: issue.number,
                 body: `## IconKit APK 构建完成\n\n### Choosing an APK variant\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): Includes Geo data; recommended for first-time installation.\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): Smaller APK; recommended for updates.\n- Both variants have the same features.`,
               });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `## IconKit APK 构建未成功\n\n[查看构建日志](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
+              });
             }
             await github.rest.issues.update({
               owner: context.repo.owner,
