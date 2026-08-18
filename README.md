@@ -19,3 +19,4 @@ The build workflow creates these GitHub labels on its first IconKit Issue:
 `iconkit: failed`, and `iconkit: rate-limited`. After passing the rate-limit
 check, the workflow adds `approved` and starts the build automatically. A user
 who creates five IconKit Issues in one hour is rate limited for four hours.
+The repository owner and `YumeYuka` are exempt from this user limit.

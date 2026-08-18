@@ -69,6 +69,11 @@ jobs:
             const now = Date.now();
             const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000).toISOString();
             const oneHourAgo = now - 60 * 60 * 1000;
+            const exemptUsers = new Set([
+              context.repo.owner.toLowerCase(),
+              "yumeyuka",
+            ]);
+            const isExempt = exemptUsers.has(issue.user.login.toLowerCase());
             const { data: recentIssues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -90,7 +95,7 @@ jobs:
               new Date(candidate.created_at).getTime() >= oneHourAgo,
             ).length;
 
-            if (inCooldown || hourlyIssueCount >= 5) {
+            if (!isExempt && (inCooldown || hourlyIssueCount >= 5)) {
               await setStatus("rateLimited");
               await comment(inCooldown
                 ? "## IconKit 构建被限流\n\n你已触发创建限流。请在上次被限流四小时后再创建新的构建 Issue。此 Issue 不会构建。"
