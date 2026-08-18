@@ -7,6 +7,7 @@ import argparse
 import glob
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -38,6 +39,8 @@ def main() -> int:
     parser.add_argument("--target", required=True, type=Path)
     parser.add_argument("--build-number", required=True)
     parser.add_argument("--build-hash", required=True)
+    parser.add_argument("--build-branch", required=True)
+    parser.add_argument("--variant", choices=("builtin", "external"))
     args = parser.parse_args()
     target = args.target.resolve()
     (target / "gradlew").chmod((target / "gradlew").stat().st_mode | 0o111)
@@ -50,11 +53,16 @@ def main() -> int:
         "-Pupdate.metaAssetName=YumeBox-IconKit-meta.json",
         f"-Pbuild.number={args.build_number}",
         f"-Pbuild.hash={args.build_hash}",
-        "-Pbuild.branch=icon",
+        f"-Pbuild.branch={args.build_branch}",
         "-Papk.output.tail=iconkit",
     ]
-    shutil.copyfile(build(target, True, common), stage / "YumeBox-IconKit-builtin.apk")
-    shutil.copyfile(build(target, False, common), stage / "YumeBox-IconKit-external.apk")
+    variants = (args.variant,) if args.variant else ("builtin", "external")
+    for variant in variants:
+        geo_bundle = variant == "builtin"
+        shutil.copyfile(
+            build(target, geo_bundle, common),
+            stage / f"YumeBox-IconKit-{variant}.apk",
+        )
     return 0
 
 

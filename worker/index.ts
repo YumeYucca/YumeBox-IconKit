@@ -13,7 +13,8 @@ type Job = {
 };
 
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
-const BUNDLE_TTL_SECONDS = 15 * 60;
+// The GitHub runner may wait in the queue before preparing Android build tools.
+const BUNDLE_TTL_SECONDS = 60 * 60;
 const JOB_TTL_SECONDS = 24 * 60 * 60;
 
 function jobKey(jobId: string) {
@@ -86,7 +87,11 @@ function issueUrl(env: Env, workerUrl: string, jobId: string, token: string): st
   const search = new URLSearchParams({
     template: "icon-build.md",
     title: "[IconKit] Build APK",
-    body: bundleUrl,
+    body: [
+      "## IconKit APK 构建请求",
+      "此 Issue 由 IconKit 自动创建。请勿修改下方图标包链接，构建将自动开始。",
+      bundleUrl,
+    ].join("\n\n"),
   });
   return `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/issues/new?${search}`;
 }

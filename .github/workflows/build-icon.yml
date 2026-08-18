@@ -2,7 +2,7 @@ name: Build YumeBox IconKit APK
 
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled]
 
 concurrency:
   group: yumebox-iconkit-issue-${{ github.event.issue.number }}
@@ -14,31 +14,148 @@ permissions:
   issues: write
 
 jobs:
-  build:
-    name: Build two IconKit APKs
-    if: startsWith(github.event.issue.title, '[IconKit]')
+  triage:
+    name: "00 · Rate limit"
+    if: github.event.action == 'opened' && startsWith(github.event.issue.title, '[IconKit]')
     runs-on: ubuntu-latest
+    steps:
+      - name: Apply issue labels and enforce the rate limit
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const labels = {
+              pending: { name: "iconkit: pending", color: "fbca04", description: "IconKit build is queued" },
+              approved: { name: "approved", color: "0e8a16", description: "Passed automated IconKit review" },
+              building: { name: "iconkit: building", color: "1d76db", description: "IconKit APK build is running" },
+              success: { name: "iconkit: success", color: "2da44e", description: "IconKit APK build completed" },
+              failed: { name: "iconkit: failed", color: "d73a4a", description: "IconKit APK build failed" },
+              rateLimited: { name: "iconkit: rate-limited", color: "b60205", description: "IconKit Issue creation is temporarily limited" },
+            };
+            const issue = context.payload.issue;
+            const nameOf = (label) => typeof label === "string" ? label : label.name;
+            const comment = (body) => github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body,
+            });
+            for (const label of Object.values(labels)) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ...label,
+                });
+              } catch (error) {
+                if (error.status !== 422) throw error;
+              }
+            }
+            const setStatus = async (status) => {
+              const { data } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+              });
+              const retained = data.labels.map(nameOf).filter((name) => !name.startsWith("iconkit: "));
+              await github.rest.issues.setLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: [...retained, labels[status].name],
+              });
+            };
+
+            const now = Date.now();
+            const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000).toISOString();
+            const oneHourAgo = now - 60 * 60 * 1000;
+            const { data: recentIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: issue.user.login,
+              state: "all",
+              since: fourHoursAgo,
+              per_page: 100,
+            });
+            const isIconKitIssue = (candidate) =>
+              !candidate.pull_request && candidate.title.startsWith("[IconKit]");
+            const inCooldown = recentIssues.some((candidate) =>
+              candidate.number !== issue.number &&
+              isIconKitIssue(candidate) &&
+              new Date(candidate.created_at).getTime() >= now - 4 * 60 * 60 * 1000 &&
+              candidate.labels.map(nameOf).includes(labels.rateLimited.name),
+            );
+            const hourlyIssueCount = recentIssues.filter((candidate) =>
+              isIconKitIssue(candidate) &&
+              new Date(candidate.created_at).getTime() >= oneHourAgo,
+            ).length;
+
+            if (inCooldown || hourlyIssueCount >= 5) {
+              await setStatus("rateLimited");
+              await comment(inCooldown
+                ? "## IconKit 构建被限流\n\n你已触发创建限流。请在上次被限流四小时后再创建新的构建 Issue。此 Issue 不会构建。"
+                : "## IconKit 构建被限流\n\n你在一小时内已创建 5 个 IconKit 构建 Issue。接下来四小时不能创建新的构建 Issue。此 Issue 不会构建。");
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: "closed",
+              });
+              return;
+            }
+
+            await setStatus("pending");
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: [labels.approved.name],
+            });
+            await comment(`## IconKit 构建已通过检查\n\n已自动添加 \`approved\` 标签，正在启动构建。\n\n- [查看 Actions 进度](${context.payload.repository.html_url}/actions/runs/${context.runId})`);
+
+  prepare:
+    name: "01 · Prepare icon"
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'approved' &&
+      github.event.issue.state == 'open' &&
+      startsWith(github.event.issue.title, '[IconKit]') &&
+      !contains(github.event.issue.labels.*.name, 'iconkit: building') &&
+      !contains(github.event.issue.labels.*.name, 'iconkit: success') &&
+      !contains(github.event.issue.labels.*.name, 'iconkit: rate-limited')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ICON_WORKER_URL: https://yumebox-iconkit.yumeyuka.moe
+      ISSUE_BODY: ${{ github.event.issue.body }}
       YUMEBOX_REPOSITORY: YumeYucca/YumeBox
       YUMEBOX_REF: Moe
-      ICON_WORKER_URL: https://yumebox-iconkit.yumeyuka.moe
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
-      ISSUE_BODY: ${{ github.event.issue.body }}
-      ACTIONS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      ARTIFACT_NAME: YumeBox-IconKit-issue-${{ github.event.issue.number }}
-
     steps:
-      - name: Resolve job URL
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          actions_job_url="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
-            | jq -r '.jobs[0].html_url // empty')"
-          echo "ACTIONS_URL=${actions_job_url:-$ACTIONS_RUN_URL}" >> "$GITHUB_ENV"
+      - name: Mark build in progress
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const issue = context.payload.issue;
+            const { data } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+            });
+            const nameOf = (label) => typeof label === "string" ? label : label.name;
+            const retained = data.labels.map(nameOf).filter((name) => !name.startsWith("iconkit: "));
+            await github.rest.issues.setLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: [...retained, "iconkit: building"],
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `## IconKit APK 正在构建\n\n- [查看构建日志](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
+            });
 
       - name: Checkout workflow tools
         uses: actions/checkout@v6
@@ -47,30 +164,10 @@ jobs:
           fetch-depth: 1
 
       - name: Validate issue bundle URL
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if python3 bridge/scripts/extract_issue_bundle.py \
-            --worker-url "$ICON_WORKER_URL" \
-            --issue-body "$ISSUE_BODY" >> "$GITHUB_ENV"; then
-            exit 0
-          fi
-          curl --fail --silent --show-error --request POST \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --data "$(jq -nc --arg body '无法读取有效的 IconKit R2 链接，构建未开始。请从图标编辑器重新创建构建 Issue。' '{body: $body}')"
-          exit 1
-
-      - name: Comment build started
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          curl --fail --silent --show-error --request POST \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --data "$(jq -nc --arg body "已收到图标包，正在构建 APK。可在此查看构建进度：$ACTIONS_URL" '{body: $body}')"
+        run: >-
+          python3 bridge/scripts/extract_issue_bundle.py
+          --worker-url "$ICON_WORKER_URL"
+          --issue-body "$ISSUE_BODY" >> "$GITHUB_ENV"
 
       - name: Test icon bundle application
         working-directory: bridge
@@ -83,19 +180,94 @@ jobs:
           ref: ${{ env.YUMEBOX_REF }}
           path: yumebox
           submodules: recursive
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Setup Java
-        uses: actions/setup-java@v5
+      - name: Apply uploaded icon bundle
+        run: >-
+          python3 bridge/scripts/apply_icon_bundle.py
+          --worker-url "$ICON_WORKER_URL"
+          --job-id "$ICON_JOB_ID"
+          --download-token "$ICON_DOWNLOAD_TOKEN"
+          --target yumebox
+
+      - name: Upload prepared icon resources
+        uses: actions/upload-artifact@v7
         with:
-          distribution: temurin
-          java-version: "24"
+          name: iconkit-resources
+          path: |
+            yumebox/app/res/mipmap-*/ic_launcher*.png
+            yumebox/app/res/mipmap-anydpi/ic_launcher.xml
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
-      - name: Setup Kotlin
-        uses: fwilhe2/setup-kotlin@88d53291848568823e529973af5d0cdb8ddf8d87
+  build-geo:
+    name: "02 · Geo"
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout YumeBox source
+        uses: actions/checkout@v6
+        with:
+          repository: YumeYucca/YumeBox
+          ref: Moe
+          path: yumebox
+          submodules: recursive
+          fetch-depth: 1
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c
+      - name: Download prepared icon resources
+        uses: actions/download-artifact@v8
+        with:
+          name: iconkit-resources
+          path: yumebox/app/res
+
+      - name: Build Geo assets
+        working-directory: yumebox
+        run: python3 scripts/native-build.py --geo
+
+      - name: Upload Geo artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: iconkit-geo
+          path: yumebox/build/generated/assets/geo
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  build-native:
+    name: "02 · Native (${{ matrix.abi }})"
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout workflow tools
+        uses: actions/checkout@v6
+        with:
+          path: bridge
+          fetch-depth: 1
+
+      - name: Checkout YumeBox source
+        uses: actions/checkout@v6
+        with:
+          repository: YumeYucca/YumeBox
+          ref: Moe
+          path: yumebox
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Download prepared icon resources
+        uses: actions/download-artifact@v8
+        with:
+          name: iconkit-resources
+          path: yumebox/app/res
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -114,15 +286,36 @@ jobs:
           targets: aarch64-linux-android
           components: rust-src
 
+      - name: Cache Rust dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            yumebox/lib/native/rust/target/
+          key: ${{ runner.os }}-iconkit-rust-${{ matrix.abi }}-${{ hashFiles('yumebox/lib/native/rust/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-iconkit-rust-${{ matrix.abi }}-
+
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk
+        run: command -v cargo-ndk >/dev/null 2>&1 || cargo install cargo-ndk
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
         with:
           packages: ""
 
+      - name: Cache NDK
+        id: cache-ndk
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}/ndk/30.0.14904198
+          key: ${{ runner.os }}-iconkit-ndk-30.0.14904198-v1
+
       - name: Install NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
         run: sdkmanager "ndk;30.0.14904198"
 
       - name: Configure Android paths
@@ -131,20 +324,117 @@ jobs:
           --target yumebox
           --ndk-version 30.0.14904198
 
-      - name: Build Geo and native inputs
+      - name: Build native libraries
+        working-directory: yumebox
         env:
-          ABI_APP_LIST: arm64-v8a
+          ABI_APP_LIST: ${{ matrix.abi }}
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/30.0.14904198
-        run: python3 bridge/scripts/build_native.py --target yumebox
+        run: |
+          mkdir -p core/src/foss/golang/mihomo/component/ca
+          cp /etc/ssl/certs/ca-certificates.crt core/src/foss/golang/mihomo/component/ca/ca-certificates.crt
+          python3 scripts/sync_kernel.py alpha
+          python3 scripts/native-build.py --go --rust --compat --loader --ebpf
 
-      - name: Apply uploaded icon bundle
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: iconkit-native-${{ matrix.abi }}
+          path: yumebox/jniLibs/${{ matrix.abi }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  build-apk:
+    name: "03 · APK (${{ matrix.variant }})"
+    needs: [build-geo, build-native]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: builtin
+            artifact_name: YumeBox-IconKit-builtin.apk
+          - variant: external
+            artifact_name: YumeBox-IconKit-external.apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout workflow tools
+        uses: actions/checkout@v6
+        with:
+          path: bridge
+          fetch-depth: 1
+
+      - name: Checkout YumeBox source
+        uses: actions/checkout@v6
+        with:
+          repository: YumeYucca/YumeBox
+          ref: Moe
+          path: yumebox
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Download prepared icon resources
+        uses: actions/download-artifact@v8
+        with:
+          name: iconkit-resources
+          path: yumebox/app/res
+
+      - name: Compute YumeBox build version
+        id: build-info
+        working-directory: yumebox
+        run: |
+          echo "number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+          echo "hash=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=$(git symbolic-ref --short -q HEAD || printf '%s' Moe)" >> "$GITHUB_OUTPUT"
+
+      - name: Download Geo artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: iconkit-geo
+          path: yumebox/build/generated/assets/geo
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: iconkit-native-arm64-v8a
+          path: yumebox/jniLibs/arm64-v8a
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "24"
+
+      - name: Setup Kotlin
+        uses: fwilhe2/setup-kotlin@88d53291848568823e529973af5d0cdb8ddf8d87
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          packages: ""
+
+      - name: Cache NDK
+        id: cache-ndk
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}/ndk/30.0.14904198
+          key: ${{ runner.os }}-iconkit-ndk-30.0.14904198-v1
+
+      - name: Install NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: sdkmanager "ndk;30.0.14904198"
+
+      - name: Configure Android paths
         run: >-
-          python3 bridge/scripts/apply_icon_bundle.py
-          --worker-url "$ICON_WORKER_URL"
-          --job-id "$ICON_JOB_ID"
-          --download-token "$ICON_DOWNLOAD_TOKEN"
+          python3 bridge/scripts/configure_android_paths.py
           --target yumebox
+          --ndk-version 30.0.14904198
 
       - name: Restore signing configuration
         env:
@@ -155,39 +445,95 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: python3 bridge/scripts/restore_signing.py
 
-      - name: Build builtin and external APKs
+      - name: Build ${{ matrix.variant }} APK
         run: >-
           python3 bridge/scripts/build_apks.py
           --target yumebox
-          --build-number "${{ github.run_number }}"
-          --build-hash "${GITHUB_SHA:0:8}"
+          --build-number "${{ steps.build-info.outputs.number }}"
+          --build-hash "${{ steps.build-info.outputs.hash }}"
+          --build-branch "${{ steps.build-info.outputs.branch }}"
+          --variant "${{ matrix.variant }}"
 
-      - name: Upload two APK files
-        id: upload-apks
+      - name: Upload ${{ matrix.variant }} APK
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: |
-            yumebox/apk-stage/YumeBox-IconKit-builtin.apk
-            yumebox/apk-stage/YumeBox-IconKit-external.apk
+          name: ${{ matrix.artifact_name }}
+          path: yumebox/apk-stage/${{ matrix.artifact_name }}
           if-no-files-found: error
-          compression-level: 0
+          archive: false
           retention-days: 7
 
-      - name: Comment build result
-        if: always()
+  finalize:
+    name: "04 · Report result"
+    needs: [prepare, build-geo, build-native, build-apk]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update issue status and comment the result
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
-          BUILD_SUCCEEDED: ${{ job.status == 'success' && 'true' || 'false' }}
-          ARTIFACT_URL: ${{ steps.upload-apks.outputs.artifact-url }}
-        run: |
-          if [ "$BUILD_SUCCEEDED" = "true" ]; then
-            body="构建完成。下载 APK 工件：$ARTIFACT_URL\n\n构建日志：$ACTIONS_URL"
-          else
-            body="构建失败。请查看构建日志：$ACTIONS_URL"
-          fi
-          curl --fail --silent --show-error --request POST \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --data "$(jq -nc --arg body "$body" '{body: $body}')"
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          GEO_RESULT: ${{ needs.build-geo.result }}
+          NATIVE_RESULT: ${{ needs.build-native.result }}
+          APK_RESULT: ${{ needs.build-apk.result }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const issue = context.payload.issue;
+            const nameOf = (label) => typeof label === "string" ? label : label.name;
+            const expectedArtifacts = ["YumeBox-IconKit-builtin.apk", "YumeBox-IconKit-external.apk"];
+            let succeeded = [
+              process.env.PREPARE_RESULT,
+              process.env.GEO_RESULT,
+              process.env.NATIVE_RESULT,
+              process.env.APK_RESULT,
+            ].every((result) => result === "success");
+            const artifactLinks = new Map();
+            if (succeeded) {
+              const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+                per_page: 100,
+              });
+              for (const artifact of data.artifacts) {
+                if (expectedArtifacts.includes(artifact.name)) {
+                  artifactLinks.set(
+                    artifact.name,
+                    `${context.payload.repository.html_url}/actions/runs/${context.runId}/artifacts/${artifact.id}`,
+                  );
+                }
+              }
+              succeeded = expectedArtifacts.every((name) => artifactLinks.has(name));
+            }
+
+            const { data: current } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+            });
+            const retained = current.labels.map(nameOf).filter((name) => !name.startsWith("iconkit: "));
+            await github.rest.issues.setLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: [...retained, succeeded ? "iconkit: success" : "iconkit: failed"],
+            });
+            const logs = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
+            const body = succeeded
+              ? `## IconKit APK 构建完成\n\n- [下载内置 Geo APK](${artifactLinks.get("YumeBox-IconKit-builtin.apk")})\n- [下载外置 Geo APK](${artifactLinks.get("YumeBox-IconKit-external.apk")})\n- [查看构建日志](${logs})`
+              : `## IconKit APK 构建未成功\n\n已标记为失败并关闭此 Issue。\n\n- [查看构建日志](${logs})`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body,
+            });
+            if (!succeeded) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: "closed",
+              });
+            }
