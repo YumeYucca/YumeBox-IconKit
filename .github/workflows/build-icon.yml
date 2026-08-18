@@ -120,7 +120,6 @@ jobs:
               issue_number: issue.number,
               labels: [labels.approved.name],
             });
-            await comment(`## IconKit 构建已通过检查\n\n已自动添加 \`approved\` 标签，正在启动构建。\n\n- [查看 Actions 进度](${context.payload.repository.html_url}/actions/runs/${context.runId})`);
             core.setOutput("allowed", "true");
 
   prepare:
@@ -129,6 +128,8 @@ jobs:
     if: needs.triage.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      status_comment_id: ${{ steps.build-status.outputs.comment_id }}
     env:
       ICON_WORKER_URL: https://yumebox-iconkit.yumeyuka.moe
       ISSUE_BODY: ${{ github.event.issue.body }}
@@ -136,6 +137,7 @@ jobs:
       YUMEBOX_REF: Moe
     steps:
       - name: Mark build in progress
+        id: build-status
         uses: actions/github-script@v8
         with:
           github-token: ${{ github.token }}
@@ -154,12 +156,13 @@ jobs:
               issue_number: issue.number,
               labels: [...retained, "iconkit: building"],
             });
-            await github.rest.issues.createComment({
+            const { data: statusComment } = await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              body: `## IconKit APK 正在构建\n\n- [查看构建日志](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
+              body: `[查看构建日志](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
             });
+            core.setOutput("comment_id", String(statusComment.id));
 
       - name: Checkout workflow tools
         uses: actions/checkout@v6
@@ -480,6 +483,7 @@ jobs:
           GEO_RESULT: ${{ needs.build-geo.result }}
           NATIVE_RESULT: ${{ needs.build-native.result }}
           APK_RESULT: ${{ needs.build-apk.result }}
+          STATUS_COMMENT_ID: ${{ needs.prepare.outputs.status_comment_id }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -525,12 +529,12 @@ jobs:
             });
             const logs = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
             const body = succeeded
-              ? `## IconKit APK 构建完成\n\n- [下载内置 Geo APK](${artifactLinks.get("YumeBox-IconKit-builtin.apk")})\n- [下载外置 Geo APK](${artifactLinks.get("YumeBox-IconKit-external.apk")})\n- [查看构建日志](${logs})`
+              ? `## IconKit APK 构建完成\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): 内置 GeoIP、GeoSite、ASN 和 BundleMRS 数据，首次安装推荐。\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): 不包含 Geo 数据，体积更小；首次启用时需要联网下载 Geo 数据。\n- [查看构建日志](${logs})`
               : `## IconKit APK 构建未成功\n\n已标记为失败并关闭此 Issue。\n\n- [查看构建日志](${logs})`;
-            await github.rest.issues.createComment({
+            await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issue.number,
+              comment_id: Number(process.env.STATUS_COMMENT_ID),
               body,
             });
             if (!succeeded) {
