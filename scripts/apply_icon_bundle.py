@@ -89,16 +89,21 @@ def apply(archive: zipfile.ZipFile, target: Path) -> None:
     resources = target / "app" / "res"
     if not resources.is_dir():
         raise ValueError(f"YumeBox resources not found in {target}")
+
+    def copy_member(member: str, destination: Path) -> None:
+        with archive.open(member) as source, destination.open("wb") as output:
+            shutil.copyfileobj(source, output)
+
     for density in DENSITIES:
         source_dir = f"res/mipmap-{density}"
         destination_dir = resources / source_dir
-        shutil.copyfile(archive.open(f"{source_dir}/ic_launcher.png"), destination_dir / "ic_launcher.png")
-        shutil.copyfile(
-            archive.open(f"{source_dir}/ic_launcher_adaptive_back.png"),
+        copy_member(f"{source_dir}/ic_launcher.png", destination_dir / "ic_launcher.png")
+        copy_member(
+            f"{source_dir}/ic_launcher_adaptive_back.png",
             destination_dir / "ic_launcher_background.png",
         )
-        shutil.copyfile(
-            archive.open(f"{source_dir}/ic_launcher_adaptive_fore.png"),
+        copy_member(
+            f"{source_dir}/ic_launcher_adaptive_fore.png",
             destination_dir / "ic_launcher_foreground.png",
         )
     icon_xml = archive.read("res/mipmap-anydpi-v26/ic_launcher.xml").decode("utf-8")

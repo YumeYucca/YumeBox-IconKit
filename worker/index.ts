@@ -281,7 +281,6 @@ export default {
       const objectKey = `jobs/${jobId}/icon-bundle.zip`;
       const bundle = await env.ICON_BUNDLES.get(objectKey);
       if (!bundle) return new Response("Not found", { status: 404 });
-      await env.ICON_BUNDLES.delete(objectKey);
       return new Response(bundle.body, {
         headers: { "Content-Type": "application/zip" },
       });

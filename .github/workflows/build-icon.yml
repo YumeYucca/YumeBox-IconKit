@@ -25,6 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -43,13 +44,24 @@ jobs:
       ARTIFACT_NAME: YumeBox-IconKit-${{ inputs.job_id }}
 
     steps:
+      - name: Resolve job URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actions_job_url="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
+            | jq -r '.jobs[0].html_url // empty')"
+          echo "ACTIONS_URL=${actions_job_url:-$ACTIONS_RUN_URL}" >> "$GITHUB_ENV"
+
       - name: Report run URL
         run: |
           curl --fail --silent --show-error --request POST \
             "$ICON_WORKER_URL/v1/jobs/$ICON_JOB_ID/callback" \
             --header "Authorization: Bearer $ICON_CALLBACK_TOKEN" \
             --header "Content-Type: application/json" \
-            --data "{\"status\":\"running\",\"actionsUrl\":\"$ACTIONS_RUN_URL\"}"
+            --data "{\"status\":\"running\",\"actionsUrl\":\"$ACTIONS_URL\"}"
 
       - name: Checkout workflow tools
         uses: actions/checkout@v6
@@ -171,5 +183,5 @@ jobs:
           --job-id "$ICON_JOB_ID"
           --callback-token "$ICON_CALLBACK_TOKEN"
           --status "$CALLBACK_STATUS"
-          --actions-url "$ACTIONS_RUN_URL"
+          --actions-url "$ACTIONS_URL"
           --artifact-name "$ARTIFACT_NAME"
