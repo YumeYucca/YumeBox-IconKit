@@ -1,23 +1,15 @@
 export interface Env {
   ICON_BUNDLES: R2Bucket;
-  GITHUB_TOKEN: string;
   GITHUB_OWNER: string;
   GITHUB_REPO: string;
-  GITHUB_WORKFLOW: string;
-  GITHUB_REF: string;
   ALLOWED_ORIGINS?: string;
 }
 
-type JobStatus = "queued" | "running" | "succeeded" | "failed";
 type Job = {
   downloadToken: string;
-  callbackToken: string;
   createdAt: string;
   expiresAt: string;
   bundleExpiresAt: string;
-  status: JobStatus;
-  actionsUrl?: string;
-  artifactName?: string;
 };
 
 const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
@@ -89,41 +81,14 @@ function safeEqual(left: string, right: string): boolean {
   return result === 0;
 }
 
-async function dispatchBuild(
-  env: Env,
-  jobId: string,
-  downloadToken: string,
-  callbackToken: string,
-  workerUrl: string,
-): Promise<void> {
-  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW}/dispatches`;
-  const githubResponse = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      "User-Agent": "yumebox-iconkit",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      ref: env.GITHUB_REF,
-      inputs: {
-        job_id: jobId,
-        download_token: downloadToken,
-        callback_token: callbackToken,
-        worker_url: workerUrl,
-      },
-    }),
+function issueUrl(env: Env, workerUrl: string, jobId: string, token: string): string {
+  const bundleUrl = `${workerUrl}/v1/jobs/${jobId}/bundle?token=${token}`;
+  const search = new URLSearchParams({
+    template: "icon-build.md",
+    title: "[IconKit] Build APK",
+    body: bundleUrl,
   });
-  if (!githubResponse.ok) {
-    const detail = (await githubResponse.text())
-      .replaceAll(/\s+/g, " ")
-      .slice(0, 300);
-    throw new Error(
-      `GitHub dispatch failed with ${githubResponse.status}: ${detail || "no details"}`,
-    );
-  }
+  return `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/issues/new?${search}`;
 }
 
 export default {
@@ -160,7 +125,6 @@ export default {
 
       const jobId = crypto.randomUUID();
       const downloadToken = randomToken();
-      const callbackToken = randomToken();
       const objectKey = `jobs/${jobId}/icon-bundle.zip`;
       await env.ICON_BUNDLES.put(objectKey, bytes, {
         httpMetadata: { contentType: "application/zip" },
@@ -168,101 +132,21 @@ export default {
       });
       await putJob(env, jobId, {
         downloadToken,
-        callbackToken,
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + JOB_TTL_SECONDS * 1000).toISOString(),
         bundleExpiresAt: new Date(
           Date.now() + BUNDLE_TTL_SECONDS * 1000,
         ).toISOString(),
-        status: "queued",
       } satisfies Job);
-
-      try {
-        await dispatchBuild(
-          env,
-          jobId,
-          downloadToken,
-          callbackToken,
-          url.origin,
-        );
-      } catch (error) {
-        await Promise.all([
-          env.ICON_BUNDLES.delete(objectKey),
-          env.ICON_BUNDLES.delete(jobKey(jobId)),
-        ]);
-        return response(
-          request,
-          env,
-          error instanceof Error ? error.message : "Failed to dispatch build",
-          { status: 502 },
-        );
-      }
 
       return response(
         request,
         env,
         JSON.stringify({
-          jobId,
-          statusUrl: `/v1/jobs/${jobId}`,
+          issueUrl: issueUrl(env, url.origin, jobId, downloadToken),
         }),
         { status: 202, headers: { "Content-Type": "application/json" } },
       );
-    }
-
-    const statusMatch = url.pathname.match(/^\/v1\/jobs\/([\w-]+)$/);
-    if (request.method === "GET" && statusMatch) {
-      const job = await getJob(env, statusMatch[1]);
-      if (!job) return response(request, env, "Not found", { status: 404 });
-      return response(
-        request,
-        env,
-        JSON.stringify({
-          status: job.status,
-          actionsUrl: job.actionsUrl,
-          artifactName: job.artifactName,
-        }),
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-store",
-          },
-        },
-      );
-    }
-
-    const callbackMatch = url.pathname.match(
-      /^\/v1\/jobs\/([\w-]+)\/callback$/,
-    );
-    if (request.method === "POST" && callbackMatch) {
-      const job = await getJob(env, callbackMatch[1]);
-      if (!job) return new Response("Not found", { status: 404 });
-      const token =
-        request.headers.get("Authorization")?.replace(/^Bearer\s+/, "") ?? "";
-      if (!safeEqual(token, job.callbackToken))
-        return new Response("Forbidden", { status: 403 });
-      const payload = (await request.json()) as Partial<{
-        status: JobStatus;
-        actionsUrl: string;
-        artifactName: string;
-      }>;
-      if (
-        !payload.status ||
-        !["running", "succeeded", "failed"].includes(payload.status)
-      )
-        return new Response("Invalid status", { status: 400 });
-      if (
-        !payload.actionsUrl?.startsWith(
-          `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/runs/`,
-        )
-      )
-        return new Response("Invalid Actions URL", { status: 400 });
-      await putJob(env, callbackMatch[1], {
-        ...job,
-        status: payload.status,
-        actionsUrl: payload.actionsUrl,
-        artifactName: payload.artifactName,
-      } satisfies Job);
-      return new Response(null, { status: 204 });
     }
 
     const match = url.pathname.match(/^\/v1\/jobs\/([\w-]+)\/bundle$/);

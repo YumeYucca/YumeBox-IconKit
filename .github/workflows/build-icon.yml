@@ -1,47 +1,32 @@
 name: Build YumeBox IconKit APK
 
 on:
-  workflow_dispatch:
-    inputs:
-      job_id:
-        description: Cloudflare Worker icon job ID
-        required: true
-        type: string
-      download_token:
-        description: One-time icon bundle token
-        required: true
-        type: string
-      callback_token:
-        description: One-time build status callback token
-        required: true
-        type: string
-      worker_url:
-        description: Cloudflare Worker HTTPS origin
-        required: true
-        type: string
+  issues:
+    types: [opened]
 
 concurrency:
-  group: yumebox-iconkit-${{ inputs.job_id }}
+  group: yumebox-iconkit-issue-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 permissions:
   actions: read
   contents: read
+  issues: write
 
 jobs:
   build:
     name: Build two IconKit APKs
+    if: contains(github.event.issue.labels.*.name, 'icon-build')
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       YUMEBOX_REPOSITORY: YumeYucca/YumeBox
       YUMEBOX_REF: Moe
-      ICON_WORKER_URL: ${{ inputs.worker_url }}
-      ICON_JOB_ID: ${{ inputs.job_id }}
-      ICON_DOWNLOAD_TOKEN: ${{ inputs.download_token }}
-      ICON_CALLBACK_TOKEN: ${{ inputs.callback_token }}
+      ICON_WORKER_URL: https://yumebox-iconkit.yumeyuka.moe
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
       ACTIONS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      ARTIFACT_NAME: YumeBox-IconKit-${{ inputs.job_id }}
+      ARTIFACT_NAME: YumeBox-IconKit-issue-${{ github.event.issue.number }}
 
     steps:
       - name: Resolve job URL
@@ -55,22 +40,41 @@ jobs:
             | jq -r '.jobs[0].html_url // empty')"
           echo "ACTIONS_URL=${actions_job_url:-$ACTIONS_RUN_URL}" >> "$GITHUB_ENV"
 
-      - name: Report run URL
-        run: |
-          curl --fail --silent --show-error --request POST \
-            "$ICON_WORKER_URL/v1/jobs/$ICON_JOB_ID/callback" \
-            --header "Authorization: Bearer $ICON_CALLBACK_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data "{\"status\":\"running\",\"actionsUrl\":\"$ACTIONS_URL\"}"
-
       - name: Checkout workflow tools
         uses: actions/checkout@v6
         with:
           path: bridge
           fetch-depth: 1
 
-      - name: Validate request
-        run: python3 bridge/scripts/validate_dispatch.py
+      - name: Validate issue bundle URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if python3 bridge/scripts/extract_issue_bundle.py \
+            --worker-url "$ICON_WORKER_URL" \
+            --issue-body "$ISSUE_BODY" >> "$GITHUB_ENV"; then
+            exit 0
+          fi
+          curl --fail --silent --show-error --request POST \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --data "$(jq -nc --arg body '无法读取有效的 IconKit R2 链接，构建未开始。请从图标编辑器重新创建构建 Issue。' '{body: $body}')"
+          exit 1
+
+      - name: Comment build started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --silent --show-error --request POST \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --data "$(jq -nc --arg body "已收到图标包，正在构建 APK。可在此查看构建进度：$ACTIONS_URL" '{body: $body}')"
+
+      - name: Test icon bundle application
+        working-directory: bridge
+        run: python3 -m unittest discover -s tests -v
 
       - name: Checkout YumeBox source
         uses: actions/checkout@v6
@@ -159,6 +163,7 @@ jobs:
           --build-hash "${GITHUB_SHA:0:8}"
 
       - name: Upload two APK files
+        id: upload-apks
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -169,15 +174,20 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-      - name: Report build result
+      - name: Comment build result
         if: always()
         env:
-          CALLBACK_STATUS: ${{ job.status == 'success' && 'succeeded' || 'failed' }}
-        run: >-
-          python3 bridge/scripts/report_job.py
-          --worker-url "$ICON_WORKER_URL"
-          --job-id "$ICON_JOB_ID"
-          --callback-token "$ICON_CALLBACK_TOKEN"
-          --status "$CALLBACK_STATUS"
-          --actions-url "$ACTIONS_URL"
-          --artifact-name "$ARTIFACT_NAME"
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SUCCEEDED: ${{ job.status == 'success' && 'true' || 'false' }}
+          ARTIFACT_URL: ${{ steps.upload-apks.outputs.artifact-url }}
+        run: |
+          if [ "$BUILD_SUCCEEDED" = "true" ]; then
+            body="构建完成。下载 APK 工件：$ARTIFACT_URL\n\n构建日志：$ACTIONS_URL"
+          else
+            body="构建失败。请查看构建日志：$ACTIONS_URL"
+          fi
+          curl --fail --silent --show-error --request POST \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --data "$(jq -nc --arg body "$body" '{body: $body}')"

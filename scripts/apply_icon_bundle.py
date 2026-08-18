@@ -96,7 +96,7 @@ def apply(archive: zipfile.ZipFile, target: Path) -> None:
 
     for density in DENSITIES:
         source_dir = f"res/mipmap-{density}"
-        destination_dir = resources / source_dir
+        destination_dir = resources / f"mipmap-{density}"
         copy_member(f"{source_dir}/ic_launcher.png", destination_dir / "ic_launcher.png")
         copy_member(
             f"{source_dir}/ic_launcher_adaptive_back.png",

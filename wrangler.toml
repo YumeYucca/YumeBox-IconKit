@@ -11,7 +11,5 @@ bucket_name = "yumebox-iconkit-jobs"
 [vars]
 GITHUB_OWNER = "YumeYucca"
 GITHUB_REPO = "YumeBox-IconKit"
-GITHUB_WORKFLOW = "build-icon.yml"
-GITHUB_REF = "Moe"
 # Mintlify documentation origins allowed to submit icon jobs.
 ALLOWED_ORIGINS = "https://yumebox.gal.tf,https://yumebox.mintlify.app"
