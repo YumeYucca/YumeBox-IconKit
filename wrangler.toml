@@ -14,5 +14,5 @@ bucket_name = "yumebox-iconkit-jobs"
 GITHUB_OWNER = "YumeYucca"
 GITHUB_REPO = "YumeBox-IconKit"
 GITHUB_WORKFLOW = "build-icon.yml"
-GITHUB_REF = "main"
+GITHUB_REF = "Moe"
 # Optional additional origins separated by commas. The Worker's own origin is allowed automatically.
