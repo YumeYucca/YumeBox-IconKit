@@ -1,6 +1,8 @@
 name = "yumebox-iconkit"
 main = "worker/index.ts"
 compatibility_date = "2026-08-17"
+# Preserve runtime variables and secrets configured in Cloudflare across Git deployments.
+keep_vars = true
 
 [assets]
 directory = "./dist"

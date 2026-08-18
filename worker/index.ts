@@ -91,6 +91,7 @@ async function dispatchBuild(
   jobId: string,
   downloadToken: string,
   callbackToken: string,
+  workerUrl: string,
 ): Promise<void> {
   const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/${env.GITHUB_WORKFLOW}/dispatches`;
   const githubResponse = await fetch(url, {
@@ -104,7 +105,12 @@ async function dispatchBuild(
     },
     body: JSON.stringify({
       ref: env.GITHUB_REF,
-      inputs: { job_id: jobId, download_token: downloadToken, callback_token: callbackToken },
+      inputs: {
+        job_id: jobId,
+        download_token: downloadToken,
+        callback_token: callbackToken,
+        worker_url: workerUrl,
+      },
     }),
   });
   if (!githubResponse.ok) {
@@ -154,7 +160,7 @@ export default {
       } satisfies Job);
 
       try {
-        await dispatchBuild(env, jobId, downloadToken, callbackToken);
+        await dispatchBuild(env, jobId, downloadToken, callbackToken, url.origin);
       } catch (error) {
         await Promise.all([
           env.ICON_BUNDLES.delete(objectKey),

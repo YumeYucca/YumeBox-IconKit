@@ -15,6 +15,10 @@ on:
         description: One-time build status callback token
         required: true
         type: string
+      worker_url:
+        description: Cloudflare Worker HTTPS origin
+        required: true
+        type: string
 
 concurrency:
   group: yumebox-iconkit-${{ inputs.job_id }}
@@ -31,7 +35,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       YUMEBOX_REPOSITORY: YumeYucca/YumeBox
       YUMEBOX_REF: Yume
-      ICON_WORKER_URL: ${{ vars.ICON_WORKER_URL }}
+      ICON_WORKER_URL: ${{ inputs.worker_url }}
       ICON_JOB_ID: ${{ inputs.job_id }}
       ICON_DOWNLOAD_TOKEN: ${{ inputs.download_token }}
       ICON_CALLBACK_TOKEN: ${{ inputs.callback_token }}
