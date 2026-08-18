@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   triage:
-    name: "00 · Rate limit"
+    name: "00 · Check request"
     if: github.event.action == 'opened' && startsWith(github.event.issue.title, '[IconKit]')
     runs-on: ubuntu-latest
     outputs:
