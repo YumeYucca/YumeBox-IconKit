@@ -8,17 +8,13 @@ concurrency:
   group: yumebox-iconkit-issue-${{ github.event.issue.number }}
   cancel-in-progress: false
 
-permissions:
-  actions: read
-  contents: read
-  deployments: write
-  issues: write
-
 jobs:
   triage:
     name: "00 · Check request"
     if: github.event.action == 'opened' && startsWith(github.event.issue.title, '[IconKit]')
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     outputs:
       allowed: ${{ steps.gate.outputs.allowed }}
     steps:
@@ -122,6 +118,10 @@ jobs:
     if: needs.triage.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      deployments: write
+      issues: write
     outputs:
       deployment_id: ${{ steps.build-deployment.outputs.deployment_id }}
     env:
@@ -222,6 +222,9 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Checkout YumeBox source
         uses: actions/checkout@v6
@@ -261,6 +264,9 @@ jobs:
           - abi: arm64-v8a
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    permissions:
+      actions: read
+      contents: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -374,6 +380,9 @@ jobs:
             artifact_name: YumeBox-IconKit-external.apk
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -484,6 +493,10 @@ jobs:
     needs: [triage, prepare, build-geo, build-native, build-apk]
     if: always() && needs.triage.outputs.allowed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      deployments: write
+      issues: write
     steps:
       - name: Update issue status and comment the result
         uses: actions/github-script@v8
