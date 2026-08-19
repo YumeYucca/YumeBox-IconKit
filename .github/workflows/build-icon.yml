@@ -30,7 +30,6 @@ jobs:
           script: |
             const labels = {
               pending: { name: "iconkit: pending", color: "fbca04", description: "IconKit build is queued" },
-              approved: { name: "approved", color: "0e8a16", description: "Passed automated IconKit review" },
               building: { name: "iconkit: building", color: "1d76db", description: "IconKit APK build is running" },
               success: { name: "iconkit: success", color: "2da44e", description: "IconKit APK build completed" },
               failed: { name: "iconkit: failed", color: "d73a4a", description: "IconKit APK build failed" },
@@ -115,12 +114,6 @@ jobs:
             }
 
             await setStatus("pending");
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              labels: [labels.approved.name],
-            });
             core.setOutput("allowed", "true");
 
   prepare:
@@ -175,6 +168,7 @@ jobs:
               deployment_id: deployment.id,
               state: "in_progress",
               description: "IconKit APK build is running",
+              environment_url: `${context.payload.repository.html_url}/actions/runs/${context.runId}`,
               auto_inactive: false,
             });
             core.setOutput("deployment_id", String(deployment.id));
@@ -543,6 +537,7 @@ jobs:
               labels: [...retained, succeeded ? "iconkit: success" : "iconkit: failed"],
             });
             const deploymentId = Number(process.env.DEPLOYMENT_ID);
+            const actionsUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
             if (Number.isInteger(deploymentId) && deploymentId > 0) {
               await github.rest.repos.createDeploymentStatus({
                 owner: context.repo.owner,
@@ -552,6 +547,7 @@ jobs:
                 description: succeeded
                   ? "IconKit APK build completed"
                   : "IconKit APK build failed",
+                environment_url: actionsUrl,
                 auto_inactive: false,
               });
             }
@@ -560,14 +556,14 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `## IconKit APK 构建完成\n\n### Choosing an APK variant\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): Includes Geo data; recommended for first-time installation.\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): Smaller APK; recommended for updates.\n- Both variants have the same features.`,
+                body: `## IconKit APK 构建完成\n\n[查看 GitHub Actions 构建](${actionsUrl})\n\n### Choosing an APK variant\n\n- [YumeBox-IconKit-builtin.apk](${artifactLinks.get("YumeBox-IconKit-builtin.apk")}): Includes Geo data; recommended for first-time installation.\n- [YumeBox-IconKit-external.apk](${artifactLinks.get("YumeBox-IconKit-external.apk")}): Smaller APK; recommended for updates.\n- Both variants have the same features.`,
               });
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `## IconKit APK 构建未成功\n\n[查看构建日志](${context.payload.repository.html_url}/actions/runs/${context.runId})`,
+                body: `## IconKit APK 构建未成功\n\n[查看构建日志](${actionsUrl})`,
               });
             }
             await github.rest.issues.update({
